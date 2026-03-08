@@ -85,7 +85,7 @@ class TestGenerator:
         tests.extend(self._generate_accepted_values_tests(table_name, full_table_path, table_schema, checks))
         tests.extend(self._generate_relationship_tests(project_id, dataset_id, table_name, full_table_path, table_schema, checks))
         tests.extend(self._generate_freshness_sla_tests(table_name, full_table_path, table_schema, checks))
-        tests.extend(self._generate_row_count_drift_tests(project_id, dataset_id, table_name, full_table_path, checks))
+        tests.extend(self._generate_row_count_drift_tests(project_id, dataset_id, table_name, full_table_path, checks, table_schema))
         tests.extend(self._generate_schema_drift_tests(project_id, dataset_id, table_name, table_schema, checks))
 
         return tests
@@ -192,21 +192,29 @@ class TestGenerator:
         table_name: str,
         full_table_path: str,
         checks: ChecksConfig,
+        table_schema: TableSchema,
     ) -> List[TestCase]:
         if not checks.row_count_drift.enabled:
             return []
 
+        time_column = next(
+            (c.name for c in table_schema.columns if c.data_type in ["TIMESTAMP", "DATETIME", "DATE"]),
+            None,
+        )
+        if not time_column:
+            return []
+
         sql = (
             "WITH daily AS ("
-            f"SELECT DATE(_PARTITIONTIME) AS ds, COUNT(*) AS cnt FROM {full_table_path} "
-            "WHERE _PARTITIONTIME >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 8 DAY) "
+            f"SELECT DATE(CAST({time_column} AS TIMESTAMP)) AS ds, COUNT(*) AS cnt FROM {full_table_path} "
+            f"WHERE CAST({time_column} AS TIMESTAMP) >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 8 DAY) "
             "GROUP BY 1"
             "), baseline AS ("
             "SELECT AVG(cnt) AS avg_cnt FROM daily WHERE ds < CURRENT_DATE()"
             "), current_day AS ("
             "SELECT IFNULL(MAX(cnt), 0) AS curr_cnt FROM daily WHERE ds = CURRENT_DATE()"
             ") "
-            "SELECT SAFE_DIVIDE(ABS(curr_cnt - avg_cnt), NULLIF(avg_cnt, 0)) AS drift_pct, 0 AS failed_rows "
+            "SELECT IFNULL(SAFE_DIVIDE(ABS(curr_cnt - avg_cnt), NULLIF(avg_cnt, 0)), 1.0) AS drift_pct, 0 AS failed_rows "
             "FROM baseline CROSS JOIN current_day"
         )
 
@@ -216,7 +224,7 @@ class TestGenerator:
                 test_name=f"{table_name}_row_count_drift",
                 sql=sql,
                 description=(
-                    f"Checks row-count drift vs 7-day baseline (threshold {checks.row_count_drift.threshold:.2f})."
+                    f"Checks row-count drift vs 7-day baseline by {time_column} (threshold {checks.row_count_drift.threshold:.2f})."
                 ),
                 tags=["row_count", "drift", "freshness"],
                 quality_dimension="freshness",
