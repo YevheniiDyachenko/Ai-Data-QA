@@ -6,5 +6,11 @@ tests/__pycache__/
 dist/
 build/
 *.json
+!dashboard/package.json
+!dashboard/package-lock.json
+!dashboard/tsconfig.json
+!dashboard/.eslintrc.json
+!dashboard/public/reports/
+!dashboard/public/reports/*.json
 tests_generated/
 reports/

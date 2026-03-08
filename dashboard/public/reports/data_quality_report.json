@@ -1,0 +1,54 @@
+{
+  "dataset": "analytics",
+  "tables": [
+    {
+      "name": "users",
+      "tests_executed": 6,
+      "tests_passed": 4,
+      "tests_failed": 2,
+      "failed_tests": [
+        {
+          "name": "duplicate_user_id",
+          "failed_rows": 153
+        },
+        {
+          "name": "null_email",
+          "failed_rows": 12
+        }
+      ],
+      "profiling": {
+        "row_count": 12000,
+        "null_count": {
+          "email": 12,
+          "user_id": 0
+        },
+        "distinct_count": {
+          "user_id": 12000,
+          "email": 11988
+        }
+      },
+      "ai_analysis": "Duplicates originate from legacy_api ingestion."
+    },
+    {
+      "name": "orders",
+      "tests_executed": 7,
+      "tests_passed": 7,
+      "tests_failed": 0,
+      "failed_tests": [],
+      "profiling": {
+        "row_count": 93411,
+        "null_count": {
+          "order_id": 0,
+          "user_id": 0,
+          "coupon_code": 512
+        },
+        "distinct_count": {
+          "order_id": 93411,
+          "user_id": 11820,
+          "coupon_code": 24
+        }
+      },
+      "ai_analysis": "Order table checks are stable."
+    }
+  ]
+}
