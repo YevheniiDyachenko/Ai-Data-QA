@@ -1,15 +1,18 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Any, Dict
+from typing import List, Optional, Dict, Any, Literal
+
 
 class ColumnSchema(BaseModel):
     name: str
     data_type: str
     is_nullable: bool
 
+
 class TableSchema(BaseModel):
     table_name: str
     columns: List[ColumnSchema]
     profiling_results: Optional[List['ProfilingResult']] = None
+
 
 class ProfilingResult(BaseModel):
     table_name: str
@@ -18,12 +21,18 @@ class ProfilingResult(BaseModel):
     null_count: Optional[int] = None
     distinct_count: Optional[int] = None
 
+
 class TestCase(BaseModel):
     table_name: str
     test_name: str
     sql: str
     description: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
+    quality_dimension: Optional[Literal["completeness", "validity", "freshness", "consistency"]] = None
+    threshold_field: str = "failed_rows"
+    threshold_operator: Literal["==", "<=", "<", ">=", ">"] = "=="
+    threshold_value: float = 0
+
 
 class TestResult(BaseModel):
     table_name: str
@@ -31,10 +40,16 @@ class TestResult(BaseModel):
     sql: str
     failed_rows: int
     execution_time: float
-    status: str # "PASSED" or "FAILED"
+    status: str  # "PASSED" or "FAILED"
+    quality_dimension: Optional[str] = None
+    evaluated_metric: Optional[str] = None
+    metric_value: Optional[float] = None
+    threshold_operator: Optional[str] = None
+    threshold_value: Optional[float] = None
     error_category: Optional[str] = None
     error_code: Optional[str] = None
     error_message: Optional[str] = None
+
 
 class AnalysisResult(BaseModel):
     test_name: str

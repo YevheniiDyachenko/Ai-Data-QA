@@ -15,5 +15,22 @@ tests:
     - regex
     - range
 
+checks:
+  accepted_values:
+    enabled: true
+    threshold: 0
+  relationship:
+    enabled: true
+    threshold: 0
+  freshness_sla:
+    enabled: true
+    threshold: 24
+  row_count_drift:
+    enabled: true
+    threshold: 0.2
+  schema_drift:
+    enabled: true
+    threshold: 0
+
 report:
   output_dir: reports

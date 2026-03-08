@@ -37,6 +37,28 @@ def test_run_tests_passed():
     assert results[0].failed_rows == 0
 
 
+def test_run_tests_threshold_by_custom_metric():
+    mock_bq_client = MagicMock(spec=BQClient)
+    mock_bq_client.execute_query.return_value = [{"drift_pct": 0.35, "failed_rows": 0}]
+
+    runner = TestRunner(mock_bq_client)
+    tests = [
+        TestCase(
+            table_name="users",
+            test_name="users_row_count_drift",
+            sql="SELECT 0.35 AS drift_pct, 0 AS failed_rows",
+            threshold_field="drift_pct",
+            threshold_operator="<=",
+            threshold_value=0.2,
+        )
+    ]
+
+    results = runner.run_tests(tests)
+
+    assert results[0].status == "FAILED"
+    assert results[0].metric_value == 0.35
+
+
 def test_run_tests_filter_by_tags():
     mock_bq_client = MagicMock(spec=BQClient)
     mock_bq_client.execute_query.return_value = [{"failed_rows": 0}]

@@ -83,7 +83,7 @@ def generate_tests(config_path: str = "config.yaml", use_ai: bool = False):
 
     all_tests = []
     for schema in schemas:
-        tests = generator.generate_static_tests(config.project_id, config.dataset, schema)
+        tests = generator.generate_static_tests(config.project_id, config.dataset, schema, checks=config.checks)
         if use_ai:
             with console.status(f"[bold green]Generating AI tests for {schema.table_name}..."):
                 ai_tests = generator.generate_ai_tests(schema)

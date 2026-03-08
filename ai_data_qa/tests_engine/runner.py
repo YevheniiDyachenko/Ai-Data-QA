@@ -14,6 +14,19 @@ class TestRunner:
         self.bq_client = bq_client
         self.max_rows_limit = max_rows_limit
 
+    def _evaluate_threshold(self, metric_value: float, operator: str, threshold_value: float) -> bool:
+        if operator == "==":
+            return metric_value == threshold_value
+        if operator == "<=":
+            return metric_value <= threshold_value
+        if operator == "<":
+            return metric_value < threshold_value
+        if operator == ">=":
+            return metric_value >= threshold_value
+        if operator == ">":
+            return metric_value > threshold_value
+        return False
+
     def run_tests(self, tests: List[TestCase], include_tags: Optional[List[str]] = None) -> List[TestResult]:
         """Executes a list of tests and returns results."""
         results = []
@@ -27,10 +40,12 @@ class TestRunner:
             try:
                 safe_sql = validate_select_query(test.sql, max_limit=self.max_rows_limit)
                 rows = self.bq_client.execute_query(safe_sql)
-                failed_rows = rows[0]["failed_rows"] if rows else 0
+                first_row = rows[0] if rows else {}
+                failed_rows = int(first_row.get("failed_rows", 0) or 0)
+                metric_raw = first_row.get(test.threshold_field, failed_rows)
+                metric_value = float(metric_raw if metric_raw is not None else 0)
+                status = "PASSED" if self._evaluate_threshold(metric_value, test.threshold_operator, test.threshold_value) else "FAILED"
                 execution_time = time.time() - start_time
-
-                status = "PASSED" if failed_rows == 0 else "FAILED"
 
                 results.append(TestResult(
                     table_name=test.table_name,
@@ -39,6 +54,11 @@ class TestRunner:
                     failed_rows=failed_rows,
                     execution_time=execution_time,
                     status=status,
+                    quality_dimension=test.quality_dimension,
+                    evaluated_metric=test.threshold_field,
+                    metric_value=metric_value,
+                    threshold_operator=test.threshold_operator,
+                    threshold_value=test.threshold_value,
                 ))
                 log_event(
                     "test_executed",
@@ -46,6 +66,10 @@ class TestRunner:
                     test_name=test.test_name,
                     status=status,
                     failed_rows=failed_rows,
+                    metric_name=test.threshold_field,
+                    metric_value=metric_value,
+                    threshold_operator=test.threshold_operator,
+                    threshold_value=test.threshold_value,
                     execution_time=execution_time,
                     tags=test.tags,
                 )
@@ -66,6 +90,7 @@ class TestRunner:
                     failed_rows=-1,
                     execution_time=execution_time,
                     status="ERROR",
+                    quality_dimension=test.quality_dimension,
                     error_category=app_error.category,
                     error_code=app_error.code,
                     error_message=app_error.message,
@@ -89,6 +114,7 @@ class TestRunner:
                     failed_rows=-1,
                     execution_time=execution_time,
                     status="ERROR",
+                    quality_dimension=test.quality_dimension,
                     error_category=wrapped_error.category,
                     error_code=wrapped_error.code,
                     error_message=wrapped_error.message,
