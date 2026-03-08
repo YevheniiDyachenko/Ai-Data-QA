@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 from ai_data_qa.tests_engine.runner import TestRunner
-from ai_data_qa.tests_engine.models import TestCase
+from ai_data_qa.tests_engine.models import TestCase, RuleDefinition
 from ai_data_qa.bigquery.client import BQClient
 
 
@@ -63,3 +63,28 @@ def test_run_tests_sql_validation_error():
     assert len(results) == 1
     assert results[0].status == "ERROR"
     assert results[0].error_code == "SQL_VALIDATION_ERROR"
+
+
+def test_run_tests_skips_disabled_rules():
+    mock_bq_client = MagicMock(spec=BQClient)
+    runner = TestRunner(mock_bq_client)
+
+    rules = [
+        RuleDefinition(
+            id="disabled_rule",
+            table_name="users",
+            rule_type="not_null",
+            severity="high",
+            owner="data",
+            dimension="completeness",
+            sql="SELECT 0 as failed_rows",
+            enabled=False,
+            tags=["nulls"],
+            metadata={},
+        )
+    ]
+
+    results = runner.run_tests(rules)
+
+    assert results == []
+    mock_bq_client.execute_query.assert_not_called()

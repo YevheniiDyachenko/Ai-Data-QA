@@ -25,6 +25,19 @@ class TestCase(BaseModel):
     description: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
 
+
+class RuleDefinition(BaseModel):
+    id: str
+    table_name: str
+    rule_type: str
+    severity: str
+    owner: str
+    dimension: str
+    sql: str
+    enabled: bool = True
+    tags: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
 class TestResult(BaseModel):
     table_name: str
     test_name: str
