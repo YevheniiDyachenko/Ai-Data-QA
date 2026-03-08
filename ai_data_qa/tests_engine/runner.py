@@ -1,7 +1,10 @@
 import time
 import json
 import os
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import List, Optional
+from uuid import uuid4
 from ai_data_qa.bigquery.client import BQClient
 from ai_data_qa.tests_engine.models import TestCase, TestResult
 from ai_data_qa.tests_engine.sql_validator import validate_select_query
@@ -95,11 +98,41 @@ class TestRunner:
                 ))
         return results
 
-    def save_results(self, results: List[TestResult], output_path: str = "test_results.json"):
-        """Saves test results to a JSON file."""
+    def generate_run_id(self) -> str:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        return f"{timestamp}-{uuid4().hex[:8]}"
+
+    def save_results(
+        self,
+        results: List[TestResult],
+        output_path: str = "test_results.json",
+        run_id: Optional[str] = None,
+        started_at: Optional[str] = None,
+        finished_at: Optional[str] = None,
+    ) -> str:
+        """Saves test results to a run-specific JSON file and returns run_id."""
+        current_run_id = run_id or self.generate_run_id()
+        runs_root = Path("reports") / "runs"
+        run_dir = runs_root / current_run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        payload = {
+            "run_id": current_run_id,
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "results": [r.model_dump() for r in results],
+        }
+
+        run_results_path = run_dir / "test_results.json"
+        run_results_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+        latest_path = runs_root / "latest_run.txt"
+        latest_path.write_text(current_run_id, encoding="utf-8")
+
         with open(output_path, "w") as f:
-            json.dump({"results": [r.model_dump() for r in results]}, f, indent=2)
-        logger.info(f"Saved test results to {output_path}")
+            json.dump(payload, f, indent=2)
+        logger.info(f"Saved test results to {run_results_path}")
+        return current_run_id
 
     def load_results(self, input_path: str = "test_results.json") -> List[TestResult]:
         """Loads test results from a JSON file."""

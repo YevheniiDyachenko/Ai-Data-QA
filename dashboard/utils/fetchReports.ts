@@ -12,7 +12,10 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-export async function fetchReport(): Promise<DataQualityReport> {
+export async function fetchReport(runId?: string): Promise<DataQualityReport> {
+  if (runId) {
+    return fetchJson<DataQualityReport>(`${API_BASE}/report/${encodeURIComponent(runId)}`);
+  }
   return fetchJson<DataQualityReport>(`${API_BASE}/report`);
 }
 

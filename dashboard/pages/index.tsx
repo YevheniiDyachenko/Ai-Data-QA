@@ -5,7 +5,7 @@ import ProfilingMetrics from '../components/ProfilingMetrics';
 import TableSummary from '../components/TableSummary';
 import TrendChart from '../components/TrendChart';
 import { fetchReport, fetchTrendHistory, triggerAction } from '../utils/fetchReports';
-import { ActionStatus, DataQualityReport, TableReport, TrendHistory } from '../types/report';
+import { ActionStatus, DataQualityReport, RunManifest, TableReport, TrendHistory } from '../types/report';
 
 type FilterMode = 'all' | 'pass' | 'fail';
 const ACTIONS = ['scan', 'generate-tests', 'run-tests', 'analyze', 'report'];
@@ -19,26 +19,46 @@ export default function HomePage() {
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<ActionStatus>('idle');
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 
   const loadReports = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const [qualityReport, history] = await Promise.all([fetchReport(), fetchTrendHistory()]);
+      const history = await fetchTrendHistory();
+      const preferredRunId = selectedRunId ?? history?.runs?.[0]?.run_id;
+      const qualityReport = await fetchReport(preferredRunId);
+
       setReport(qualityReport);
       setDataset(qualityReport.dataset || dataset);
       setTrendHistory(history);
+      setSelectedRunId(qualityReport.run_id ?? preferredRunId ?? null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unknown error');
     } finally {
       setLoading(false);
     }
-  }, [dataset]);
+  }, [dataset, selectedRunId]);
 
   useEffect(() => {
     void loadReports();
   }, [loadReports]);
+
+
+  const handleRunSelect = async (runId: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const qualityReport = await fetchReport(runId);
+      setReport(qualityReport);
+      setSelectedRunId(runId);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Unknown error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleAction = async (action: string) => {
     setActiveAction(action);
@@ -141,6 +161,28 @@ export default function HomePage() {
         {!loading && !error && report && (
           <>
             {trendHistory?.history?.length ? <TrendChart history={trendHistory.history} /> : null}
+
+            {trendHistory?.runs?.length ? (
+              <section className="card">
+                <h3>Runs</h3>
+                <ul>
+                  {trendHistory.runs.map((run: RunManifest) => {
+                    const isSelected = run.run_id === selectedRunId;
+                    return (
+                      <li key={run.run_id}>
+                        <button
+                          onClick={() => void handleRunSelect(run.run_id)}
+                          disabled={loading}
+                          style={{ fontWeight: isSelected ? 700 : 400 }}
+                        >
+                          {run.run_id} — {run.finished_at ?? run.started_at ?? 'n/a'}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ) : null}
 
             {filteredTables.length === 0 ? (
               <p className="muted">No tables match the selected filter.</p>

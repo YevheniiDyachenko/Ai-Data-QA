@@ -36,13 +36,25 @@ export interface LastOperation {
   error?: ErrorPayload | null;
 }
 
+export interface RunManifest {
+  run_id: string;
+  started_at?: string;
+  finished_at?: string;
+  dataset: string;
+  status: string;
+  artifact_paths: Record<string, string>;
+}
+
 export interface DataQualityReport {
   dataset: string;
   tables: TableReport[];
+  run_id?: string;
+  manifest?: RunManifest;
   last_operation?: LastOperation;
 }
 
 export interface TrendPoint {
+  run_id: string;
   run_date: string;
   tests_passed: number;
   tests_failed: number;
@@ -51,6 +63,7 @@ export interface TrendPoint {
 export interface TrendHistory {
   dataset: string;
   history: TrendPoint[];
+  runs: RunManifest[];
 }
 
 export interface ApiActionResponse {

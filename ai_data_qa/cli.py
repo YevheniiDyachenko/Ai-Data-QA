@@ -1,6 +1,8 @@
 import typer
 import json
 import os
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional, List
 from rich.console import Console
 from rich.table import Table
@@ -115,9 +117,30 @@ def run_tests(config_path: str = "config.yaml", tags: Optional[str] = typer.Opti
     raw_tests = test_data["tests"] if isinstance(test_data, dict) else test_data
     tests = [TestCase(**t) for t in raw_tests]
 
+    run_started_at = datetime.now(timezone.utc)
+
     with console.status("[bold green]Running tests..."):
         results = runner.run_tests(tests, include_tags=_split_tags(tags))
-        runner.save_results(results)
+
+    run_finished_at = datetime.now(timezone.utc)
+    run_id = runner.save_results(
+        results,
+        run_id=runner.generate_run_id(),
+        started_at=run_started_at.isoformat(),
+        finished_at=run_finished_at.isoformat(),
+    )
+
+    reporter = ReportGenerator(config.report.output_dir)
+    reporter.write_manifest(
+        run_id=run_id,
+        dataset_id=config.dataset,
+        started_at=run_started_at.isoformat(),
+        finished_at=run_finished_at.isoformat(),
+        status="completed",
+        artifact_paths={
+            "test_results": str(Path(config.report.output_dir) / "runs" / run_id / "test_results.json"),
+        },
+    )
 
     table = Table(title="Test Results")
     table.add_column("Table", style="cyan")
@@ -204,6 +227,23 @@ def report(config_path: str = "config.yaml"):
         analyses = [AnalysisResult(**a) for a in raw_analyses]
 
     report_path = reporter.generate_markdown_report(config.dataset, results, analyses)
+
+    latest_run_path = Path(config.report.output_dir) / "runs" / "latest_run.txt"
+    if latest_run_path.exists():
+        run_id = latest_run_path.read_text(encoding="utf-8").strip()
+        reporter.write_manifest(
+            run_id=run_id,
+            dataset_id=config.dataset,
+            started_at=None,
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            status="completed",
+            artifact_paths={
+                "test_results": str(Path(config.report.output_dir) / "runs" / run_id / "test_results.json"),
+                "markdown_report": report_path,
+                "analysis": "analysis_cache.json" if os.path.exists("analysis_cache.json") else None,
+            },
+        )
+
     console.print(f"[bold green]Report generated at: {report_path}[/bold green]")
 
 
