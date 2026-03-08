@@ -34,7 +34,8 @@ body {
 }
 
 button,
-select {
+select,
+input {
   border: 1px solid #cbd5e1;
   border-radius: 0.5rem;
   background: #fff;
@@ -42,13 +43,70 @@ select {
   cursor: pointer;
 }
 
+input {
+  cursor: text;
+}
+
 button:hover {
   background: #f1f5f9;
 }
 
-button:disabled {
+button:disabled,
+input:disabled {
   opacity: 0.7;
   cursor: not-allowed;
+}
+
+.control-panel {
+  margin-bottom: 1rem;
+}
+
+.dataset-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.action-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.button-loader {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #cbd5e1;
+  border-top-color: #0f172a;
+  border-radius: 50%;
+  margin-right: 0.4rem;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.status-text {
+  margin-top: 0.75rem;
+  text-transform: capitalize;
+}
+
+.status-completed {
+  color: #166534;
+}
+
+.status-error {
+  color: #b91c1c;
+}
+
+.status-pending {
+  color: #1d4ed8;
 }
 
 .table-stack {
@@ -192,7 +250,8 @@ button:disabled {
 @media (max-width: 700px) {
   .page-header,
   .table-header,
-  .failed-item-title {
+  .failed-item-title,
+  .dataset-row {
     flex-direction: column;
     align-items: flex-start;
   }

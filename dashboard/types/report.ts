@@ -1,3 +1,5 @@
+export type ActionStatus = 'idle' | 'pending' | 'completed' | 'error';
+
 export interface FailedTest {
   name: string;
   failed_rows: number;
@@ -19,9 +21,17 @@ export interface TableReport {
   ai_analysis?: string;
 }
 
+export interface LastOperation {
+  action: string;
+  status: ActionStatus;
+  message: string;
+  timestamp: string;
+}
+
 export interface DataQualityReport {
   dataset: string;
   tables: TableReport[];
+  last_operation?: LastOperation;
 }
 
 export interface TrendPoint {
@@ -33,4 +43,11 @@ export interface TrendPoint {
 export interface TrendHistory {
   dataset: string;
   history: TrendPoint[];
+}
+
+export interface ApiActionResponse {
+  status: ActionStatus;
+  message: string;
+  action: string;
+  dataset: string;
 }
