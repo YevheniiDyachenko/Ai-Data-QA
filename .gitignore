@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+.venv
+tests/__pycache__/
+dist/
+build/
+*.json
+tests_generated/
+reports/

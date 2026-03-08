@@ -1,0 +1,19 @@
+project_id: example_project
+dataset: analytics
+location: US
+
+ai:
+  provider: openai
+  model: gpt-4o-mini
+  api_key_env_var: OPENAI_API_KEY
+
+tests:
+  output_dir: tests_generated
+  default_checks:
+    - not_null
+    - uniqueness
+    - regex
+    - range
+
+report:
+  output_dir: reports

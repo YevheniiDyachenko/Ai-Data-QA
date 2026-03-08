@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "ai-data-qa"
+version = "0.1.0"
+description = "AI-powered Data Quality tool for BigQuery"
+authors = ["Jules <jules@example.com>"]
+packages = [{include = "ai_data_qa"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+google-cloud-bigquery = "^3.10.0"
+typer = {extras = ["all"], version = "^0.9.0"}
+pydantic = "^2.0.0"
+pyyaml = "^6.0"
+rich = "^13.0.0"
+openai = "^1.0.0"
+anthropic = "^0.3.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+ai-data-qa = "ai_data_qa.cli:app"
