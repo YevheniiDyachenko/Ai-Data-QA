@@ -1,29 +1,33 @@
-import { DataQualityReport, TrendHistory } from '../types/report';
+import { ApiActionResponse, DataQualityReport, TrendHistory } from '../types/report';
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(path, { cache: 'no-store' });
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
+
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, { cache: 'no-store', ...init });
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch ${path}: ${response.status}`);
+    throw new Error(`Failed to fetch ${url}: ${response.status}`);
   }
 
   return (await response.json()) as T;
 }
 
 export async function fetchReport(): Promise<DataQualityReport> {
-  return fetchJson<DataQualityReport>('/reports/data_quality_report.json');
+  return fetchJson<DataQualityReport>(`${API_BASE}/report`);
 }
 
 export async function fetchTrendHistory(): Promise<TrendHistory | null> {
-  const response = await fetch('/reports/dq_history.json', { cache: 'no-store' });
-
-  if (response.status === 404) {
+  try {
+    return await fetchJson<TrendHistory>(`${API_BASE}/history`);
+  } catch {
     return null;
   }
+}
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch /reports/dq_history.json: ${response.status}`);
-  }
-
-  return (await response.json()) as TrendHistory;
+export async function triggerAction(action: string, dataset: string): Promise<ApiActionResponse> {
+  return fetchJson<ApiActionResponse>(`${API_BASE}/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataset })
+  });
 }

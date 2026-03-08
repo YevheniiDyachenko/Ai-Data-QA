@@ -1,115 +1,99 @@
 # AI Data QA for BigQuery
 
-AI Data QA is a lightweight, AI-powered tool for automated data quality validation in Google BigQuery. It helps data engineers scan schemas, profile tables, generate tests, and analyze failures using Large Language Models.
+AI Data QA is a lightweight, AI-powered tool for automated data quality validation in Google BigQuery. It supports a CLI workflow and a web dashboard control panel backed by FastAPI.
 
 ## Features
 
-- **Schema Discovery:** Automatically scans BigQuery datasets to understand table structures.
-- **Data Profiling:** Computes row counts, null counts, and distinct counts for table columns.
-- **Automated Testing:** Generates SQL-based data quality tests including:
-  - Not Null checks
-  - Uniqueness checks
-  - Regex-based format validation
-  - Numeric range checks
-  - Timestamp sanity checks
-- **AI-Powered Analysis:** Uses LLMs (OpenAI/Anthropic) to analyze test failures and suggest root causes.
-- **Markdown Reporting:** Generates comprehensive reports of data quality status.
+- **Schema Discovery:** scan BigQuery datasets and table schemas.
+- **Data Profiling:** collect row counts, null counts, and distinct counts.
+- **Automated Testing:** generate and run SQL quality tests.
+- **AI Analysis:** optionally analyze failed tests with LLM guidance.
+- **Reporting:** produce JSON/Markdown reports and trend history.
+- **Dashboard Control Panel:** trigger all QA commands from a Next.js UI.
 
-## Quick Start
+## Project structure
+
+```text
+ai_data_qa/
+├── api/
+│   └── server.py
+
+dashboard/
+├── components/
+│   ├── TableSummary.tsx
+│   ├── FailedTestsAccordion.tsx
+│   ├── ProfilingMetrics.tsx
+│   └── TrendChart.tsx
+├── pages/
+│   └── index.tsx
+├── public/reports/
+│   ├── data_quality_report.json
+│   └── dq_history.json
+└── utils/
+    └── fetchReports.ts
+```
+
+## Python API setup and run
 
 ```bash
-# Install the package in editable mode
 pip install -e .
+uvicorn ai_data_qa.api.server:app --reload --port 8000
+```
 
-# Scan the dataset schema and profile tables
+Available command endpoints:
+
+- `POST /scan`
+- `POST /generate-tests`
+- `POST /run-tests`
+- `POST /analyze`
+- `POST /report`
+
+Each endpoint accepts JSON with at least:
+
+```json
+{
+  "dataset": "analytics"
+}
+```
+
+Report read endpoints:
+
+- `GET /report` returns `reports/data_quality_report.json`
+- `GET /history` returns `reports/dq_history.json` when available
+
+## Dashboard setup and run
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`.
+
+## Using the Control Panel
+
+1. Start the FastAPI server on port `8000`.
+2. Start the dashboard on port `3000`.
+3. Enter a dataset name in the dashboard input.
+4. Run commands using buttons in this order:
+   - `scan`
+   - `generate-tests`
+   - `run-tests`
+   - `analyze`
+   - `report`
+5. The dashboard automatically refreshes the latest JSON report after each action.
+6. While a command runs:
+   - loader/spinner appears,
+   - command buttons are disabled,
+   - status updates to `pending`, then `completed` or `error`.
+
+## CLI quick start (optional)
+
+```bash
 ai-data-qa scan
-
-# Generate SQL data quality tests
 ai-data-qa generate-tests
-
-# Run the generated tests in BigQuery
 ai-data-qa run-tests
-
-# Analyze failures with AI
 ai-data-qa analyze
-
-# Generate a Markdown report
 ai-data-qa report
-```
-
-## Installation
-
-```bash
-git clone https://github.com/your-repo/ai-data-qa.git
-cd ai-data-qa
-pip install .
-```
-
-## BigQuery Authentication
-
-The tool uses the official Google Cloud BigQuery client. To authenticate:
-
-1. Create a Service Account in the Google Cloud Console.
-2. Download the JSON key file.
-3. Set the environment variable:
-```bash
-export GOOGLE_APPLICATION_CREDENTIALS="path/to/your/service-account-file.json"
-```
-
-## Configuration
-
-Create a `config.yaml` file in the project root:
-
-```yaml
-project_id: "example_project"
-dataset: "analytics"
-location: "US"
-
-ai:
-  provider: "openai"  # or "anthropic"
-  model: "gpt-4o-mini"
-  api_key_env_var: "OPENAI_API_KEY"
-
-tests:
-  output_dir: "tests_generated"
-  default_checks:
-    - "not_null"
-    - "uniqueness"
-    - "regex"
-    - "range"
-
-report:
-  output_dir: "reports"
-```
-
-## Example Report Output
-
-The generated Markdown report (`reports/data_quality_report.md`) looks like this:
-
-# Data Quality Report
-
-**Dataset:** analytics
-
-## Summary
-
-- **Total Tests:** 12
-- **Passed:** 10
-- **Failed:** 2
-
-### Table: users
-
-| Test Name | Status | Failed Rows | Execution Time |
-| --- | --- | --- | --- |
-| users_user_id_unique | FAILED | 153 | 1.45s |
-| users_email_not_null | PASSED | 0 | 1.12s |
-
-#### AI Analysis
-
-**Test:** users_user_id_unique
-
-**Findings:**
-Duplicates appear to originate from legacy_api ingestion.
-
-**Suggested Investigation:**
-SELECT user_id, count(*) FROM users GROUP BY 1 HAVING count(*) > 1;
 ```
