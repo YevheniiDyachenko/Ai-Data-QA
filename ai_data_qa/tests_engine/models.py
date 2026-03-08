@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Any, Dict
 
 class ColumnSchema(BaseModel):
@@ -23,6 +23,7 @@ class TestCase(BaseModel):
     test_name: str
     sql: str
     description: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
 
 class TestResult(BaseModel):
     table_name: str
@@ -31,6 +32,9 @@ class TestResult(BaseModel):
     failed_rows: int
     execution_time: float
     status: str # "PASSED" or "FAILED"
+    error_category: Optional[str] = None
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
 
 class AnalysisResult(BaseModel):
     test_name: str

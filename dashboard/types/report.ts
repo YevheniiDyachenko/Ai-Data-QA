@@ -21,11 +21,19 @@ export interface TableReport {
   ai_analysis?: string;
 }
 
+export interface ErrorPayload {
+  message: string;
+  category?: string;
+  code?: string;
+  details?: Record<string, unknown>;
+}
+
 export interface LastOperation {
   action: string;
   status: ActionStatus;
   message: string;
   timestamp: string;
+  error?: ErrorPayload | null;
 }
 
 export interface DataQualityReport {
@@ -50,4 +58,5 @@ export interface ApiActionResponse {
   message: string;
   action: string;
   dataset: string;
+  error?: ErrorPayload | null;
 }

@@ -16,10 +16,18 @@ Focus on:
 - timestamp sanity checks
 - business logic constraints
 
-Return ONLY the SQL queries, one per line or separated by double newlines.
-Each query must return a column named 'failed_rows' representing the count of rows that failed the test.
-Example:
-SELECT COUNT(*) as failed_rows FROM table WHERE price < 0
+Return ONLY valid JSON with this schema:
+{{
+  "tests": [
+    {{
+      "test_name": "string",
+      "sql": "SELECT ...",
+      "description": "string",
+      "tags": ["freshness" | "nulls" | "distribution"]
+    }}
+  ]
+}}
+Each SQL query must return a column named 'failed_rows' representing the count of failed rows.
 """
 
 FAILURE_ANALYSIS_PROMPT = """
