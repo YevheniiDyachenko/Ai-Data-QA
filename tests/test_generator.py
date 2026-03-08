@@ -24,3 +24,18 @@ def test_generate_static_tests():
     not_null_test = next(t for t in tests if t.test_name == "users_user_id_not_null")
     assert "user_id IS NULL" in not_null_test.sql
     assert "failed_rows" in not_null_test.sql
+
+
+def test_generate_ai_tests_invalid_contract_fallback():
+    class BadClient:
+        def completion(self, prompt: str) -> str:
+            return "not-json"
+
+    generator = TestGenerator(output_dir="tests_generated_test", ai_client=BadClient())
+    schema = TableSchema(
+        table_name="users",
+        columns=[ColumnSchema(name="user_id", data_type="INT64", is_nullable=False)]
+    )
+
+    tests = generator.generate_ai_tests(schema)
+    assert tests == []

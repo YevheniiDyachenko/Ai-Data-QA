@@ -1,9 +1,11 @@
 import os
 from typing import List
+import json
 from ai_data_qa.tests_engine.models import TableSchema, TestCase, ProfilingResult
 from ai_data_qa.ai.client import AIClient
 from ai_data_qa.ai.prompts import TEST_GENERATION_PROMPT
-from ai_data_qa.utils.logger import logger
+from ai_data_qa.utils.logger import logger, log_event
+from ai_data_qa.errors import AIContractError
 
 class TestGenerator:
     def __init__(self, output_dir: str = "tests_generated", ai_client: AIClient = None):
@@ -25,7 +27,8 @@ class TestGenerator:
                     table_name=table_name,
                     test_name=f"{table_name}_{column.name}_not_null",
                     sql=f"SELECT COUNT(*) as failed_rows FROM {full_table_path} WHERE {column.name} IS NULL",
-                    description=f"Checks if column {column.name} has null values."
+                    description=f"Checks if column {column.name} has null values.",
+                    tags=["nulls"]
                 ))
 
             # Uniqueness (placeholder logic - usually applied to ID columns)
@@ -34,7 +37,8 @@ class TestGenerator:
                     table_name=table_name,
                     test_name=f"{table_name}_{column.name}_unique",
                     sql=f"SELECT COUNT(*) as failed_rows FROM (SELECT {column.name} FROM {full_table_path} GROUP BY {column.name} HAVING COUNT(*) > 1)",
-                    description=f"Checks if column {column.name} is unique."
+                    description=f"Checks if column {column.name} is unique.",
+                    tags=["distribution"]
                 ))
 
             # Numeric Range (example: values should be positive)
@@ -43,7 +47,8 @@ class TestGenerator:
                     table_name=table_name,
                     test_name=f"{table_name}_{column.name}_positive",
                     sql=f"SELECT COUNT(*) as failed_rows FROM {full_table_path} WHERE {column.name} < 0",
-                    description=f"Checks if column {column.name} is positive."
+                    description=f"Checks if column {column.name} is positive.",
+                    tags=["distribution"]
                 ))
 
             # Timestamp validation (example: should not be in the future)
@@ -52,7 +57,8 @@ class TestGenerator:
                     table_name=table_name,
                     test_name=f"{table_name}_{column.name}_not_future",
                     sql=f"SELECT COUNT(*) as failed_rows FROM {full_table_path} WHERE {column.name} > CURRENT_TIMESTAMP()",
-                    description=f"Checks if column {column.name} is not in the future."
+                    description=f"Checks if column {column.name} is not in the future.",
+                    tags=["freshness"]
                 ))
 
             # Regex validation (example: email format)
@@ -61,7 +67,8 @@ class TestGenerator:
                     table_name=table_name,
                     test_name=f"{table_name}_{column.name}_format",
                     sql=f"SELECT COUNT(*) as failed_rows FROM {full_table_path} WHERE NOT REGEXP_CONTAINS({column.name}, r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+$')",
-                    description=f"Checks if column {column.name} has a valid email format."
+                    description=f"Checks if column {column.name} has a valid email format.",
+                    tags=["distribution"]
                 ))
 
         return tests
@@ -88,18 +95,31 @@ class TestGenerator:
 
         try:
             response = self.ai_client.completion(prompt)
-            # Simple parsing: find SQL blocks or assume each line is a query
-            queries = [q.strip() for q in response.split(";") if "SELECT" in q.upper()]
+            payload = json.loads(response)
+            if not isinstance(payload, dict) or "tests" not in payload or not isinstance(payload["tests"], list):
+                raise AIContractError("AI response does not match expected JSON contract", response=response)
 
             ai_tests = []
-            for i, sql in enumerate(queries):
+            for i, test in enumerate(payload["tests"]):
+                if not isinstance(test, dict) or not test.get("sql"):
+                    raise AIContractError("AI test item missing SQL", item=test)
                 ai_tests.append(TestCase(
                     table_name=table_schema.table_name,
-                    test_name=f"{table_schema.table_name}_ai_test_{i+1}",
-                    sql=sql,
-                    description="AI-generated data quality test."
+                    test_name=test.get("test_name") or f"{table_schema.table_name}_ai_test_{i+1}",
+                    sql=test["sql"],
+                    description=test.get("description") or "AI-generated data quality test.",
+                    tags=test.get("tags") or ["distribution"],
                 ))
             return ai_tests
+        except AIContractError as contract_error:
+            log_event(
+                "ai_test_generation_contract_fallback",
+                table_name=table_schema.table_name,
+                category=contract_error.category,
+                code=contract_error.code,
+                details=contract_error.details,
+            )
+            return []
         except Exception as e:
             logger.error(f"Failed to generate AI tests for {table_schema.table_name}: {e}")
             return []

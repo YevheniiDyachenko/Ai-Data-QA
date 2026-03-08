@@ -1,7 +1,7 @@
 import typer
 import json
 import os
-from typing import Optional
+from typing import Optional, List
 from rich.console import Console
 from rich.table import Table
 
@@ -15,10 +15,17 @@ from ai_data_qa.tests_engine.models import TestCase
 from ai_data_qa.ai.client import get_ai_client
 from ai_data_qa.ai.analyzer import AIAnalyzer
 from ai_data_qa.reports.report_generator import ReportGenerator
-from ai_data_qa.utils.logger import logger
+from ai_data_qa.utils.logger import log_event
 
 app = typer.Typer(help="AI-powered Data Quality tool for BigQuery")
 console = Console()
+
+
+def _split_tags(tags: Optional[str]) -> Optional[List[str]]:
+    if not tags:
+        return None
+    return [tag.strip() for tag in tags.split(",") if tag.strip()]
+
 
 @app.command()
 def scan(config_path: str = "config.yaml", profile: bool = True):
@@ -34,7 +41,7 @@ def scan(config_path: str = "config.yaml", profile: bool = True):
     if profile:
         with console.status("[bold green]Profiling tables..."):
             for schema in schemas:
-                logger.info(f"Profiling table: {schema.table_name}")
+                log_event("profiling_table", table_name=schema.table_name)
                 schema.profiling_results = profiler.profile_table(config.project_id, config.dataset, schema)
 
     table = Table(title=f"Schema for {config.dataset}")
@@ -48,9 +55,9 @@ def scan(config_path: str = "config.yaml", profile: bool = True):
 
     console.print(table)
 
-    # Save schema for later use
     with open("schema_cache.json", "w") as f:
-        json.dump([s.model_dump() for s in schemas], f, indent=2)
+        json.dump({"schemas": [s.model_dump() for s in schemas]}, f, indent=2)
+
 
 @app.command()
 def generate_tests(config_path: str = "config.yaml", use_ai: bool = False):
@@ -71,7 +78,8 @@ def generate_tests(config_path: str = "config.yaml", use_ai: bool = False):
         schema_data = json.load(f)
 
     from ai_data_qa.tests_engine.models import TableSchema
-    schemas = [TableSchema(**s) for s in schema_data]
+    raw_schemas = schema_data["schemas"] if isinstance(schema_data, dict) else schema_data
+    schemas = [TableSchema(**s) for s in raw_schemas]
 
     all_tests = []
     for schema in schemas:
@@ -86,12 +94,12 @@ def generate_tests(config_path: str = "config.yaml", use_ai: bool = False):
 
     console.print(f"[bold green]Generated {len(all_tests)} tests for {len(schemas)} tables.[/bold green]")
 
-    # Save tests for runner
     with open("tests_cache.json", "w") as f:
-        json.dump([t.model_dump() for t in all_tests], f, indent=2)
+        json.dump({"tests": [t.model_dump() for t in all_tests]}, f, indent=2)
+
 
 @app.command()
-def run_tests(config_path: str = "config.yaml"):
+def run_tests(config_path: str = "config.yaml", tags: Optional[str] = typer.Option(None, help="Comma-separated test tags")):
     """Executes SQL queries in BigQuery and stores results."""
     config = load_config(config_path)
     bq_client = BQClient(config.project_id, config.location)
@@ -104,10 +112,11 @@ def run_tests(config_path: str = "config.yaml"):
     with open("tests_cache.json", "r") as f:
         test_data = json.load(f)
 
-    tests = [TestCase(**t) for t in test_data]
+    raw_tests = test_data["tests"] if isinstance(test_data, dict) else test_data
+    tests = [TestCase(**t) for t in raw_tests]
 
     with console.status("[bold green]Running tests..."):
-        results = runner.run_tests(tests)
+        results = runner.run_tests(tests, include_tags=_split_tags(tags))
         runner.save_results(results)
 
     table = Table(title="Test Results")
@@ -122,6 +131,7 @@ def run_tests(config_path: str = "config.yaml"):
 
     console.print(table)
 
+
 @app.command()
 def analyze(config_path: str = "config.yaml"):
     """Uses AI to analyze failures and suggest root causes."""
@@ -134,10 +144,11 @@ def analyze(config_path: str = "config.yaml"):
         raise typer.Exit(1)
 
     with open("test_results.json", "r") as f:
-        results_data = json.load(f)
+        results_payload = json.load(f)
 
     from ai_data_qa.tests_engine.models import TestResult, TableSchema
-    results = [TestResult(**r) for r in results_data]
+    raw_results = results_payload["results"] if isinstance(results_payload, dict) else results_payload
+    results = [TestResult(**r) for r in raw_results]
     failed_results = [r for r in results if r.status == "FAILED"]
 
     if not failed_results:
@@ -150,7 +161,8 @@ def analyze(config_path: str = "config.yaml"):
 
     with open("schema_cache.json", "r") as f:
         schema_data = json.load(f)
-    schemas = {s["table_name"]: TableSchema(**s) for s in schema_data}
+    raw_schemas = schema_data["schemas"] if isinstance(schema_data, dict) else schema_data
+    schemas = {s["table_name"]: TableSchema(**s) for s in raw_schemas}
 
     analyses = []
     with console.status("[bold green]Analyzing failures with AI..."):
@@ -163,9 +175,9 @@ def analyze(config_path: str = "config.yaml"):
                 console.print(analysis.findings)
                 console.print("-" * 20)
 
-    # Save analyses for report
     with open("analysis_cache.json", "w") as f:
-        json.dump([a.model_dump() for a in analyses], f, indent=2)
+        json.dump({"analyses": [a.model_dump() for a in analyses]}, f, indent=2)
+
 
 @app.command()
 def report(config_path: str = "config.yaml"):
@@ -178,19 +190,22 @@ def report(config_path: str = "config.yaml"):
         raise typer.Exit(1)
 
     with open("test_results.json", "r") as f:
-        results_data = json.load(f)
+        results_payload = json.load(f)
 
     from ai_data_qa.tests_engine.models import TestResult, AnalysisResult
-    results = [TestResult(**r) for r in results_data]
+    raw_results = results_payload["results"] if isinstance(results_payload, dict) else results_payload
+    results = [TestResult(**r) for r in raw_results]
 
     analyses = None
     if os.path.exists("analysis_cache.json"):
         with open("analysis_cache.json", "r") as f:
-            analysis_data = json.load(f)
-        analyses = [AnalysisResult(**a) for a in analysis_data]
+            analysis_payload = json.load(f)
+        raw_analyses = analysis_payload["analyses"] if isinstance(analysis_payload, dict) else analysis_payload
+        analyses = [AnalysisResult(**a) for a in raw_analyses]
 
     report_path = reporter.generate_markdown_report(config.dataset, results, analyses)
     console.print(f"[bold green]Report generated at: {report_path}[/bold green]")
+
 
 if __name__ == "__main__":
     app()
