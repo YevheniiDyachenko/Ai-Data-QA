@@ -24,6 +24,7 @@ from ai_data_qa.cli import (
 from ai_data_qa.config import load_config
 from ai_data_qa.errors import AppError, ExecutionError
 from ai_data_qa.utils.logger import log_event
+from ai_data_qa.scheduler import SchedulerJob, SchedulerJobUpdate, SchedulerStore
 
 REPORT_PATH = Path("reports/data_quality_report.json")
 HISTORY_PATH = Path("reports/dq_history.json")
@@ -49,6 +50,29 @@ class ScanRequest(DatasetRequest):
 class GenerateTestsRequest(DatasetRequest):
     use_ai: bool = False
 
+
+
+
+class SchedulerJobCreateRequest(BaseModel):
+    dataset: str = Field(..., min_length=1)
+    cron: str | None = None
+    interval_seconds: int | None = Field(default=None, gt=0)
+    enabled: bool = True
+    retry_count: int = Field(default=3, ge=0)
+    backoff_seconds: float = Field(default=2.0, ge=0)
+
+
+class SchedulerJobResponse(BaseModel):
+    id: str
+    dataset: str
+    cron: str | None = None
+    interval_seconds: int | None = None
+    enabled: bool
+    retry_count: int
+    backoff_seconds: float
+    created_at: str
+    updated_at: str
+    last_run_at: str | None = None
 
 class OperationResponse(BaseModel):
     status: str
@@ -220,3 +244,42 @@ def get_history() -> dict[str, Any]:
             status_code=500,
             detail={"message": "History JSON is invalid", "code": "INVALID_HISTORY_JSON"},
         ) from exc
+
+
+@app.get("/scheduler/jobs", response_model=list[SchedulerJobResponse])
+def list_scheduler_jobs(store_path: str = "reports/scheduler_jobs.json") -> list[SchedulerJobResponse]:
+    store = SchedulerStore(store_path)
+    return [SchedulerJobResponse(**job.model_dump()) for job in store.list_jobs()]
+
+
+@app.get("/scheduler/jobs/{job_id}", response_model=SchedulerJobResponse)
+def get_scheduler_job(job_id: str, store_path: str = "reports/scheduler_jobs.json") -> SchedulerJobResponse:
+    store = SchedulerStore(store_path)
+    job = store.get_job(job_id)
+    return SchedulerJobResponse(**job.model_dump())
+
+
+@app.post("/scheduler/jobs", response_model=SchedulerJobResponse)
+def create_scheduler_job(request: SchedulerJobCreateRequest, store_path: str = "reports/scheduler_jobs.json") -> SchedulerJobResponse:
+    store = SchedulerStore(store_path)
+    job = SchedulerJob(**request.model_dump())
+    created = store.create_job(job)
+    return SchedulerJobResponse(**created.model_dump())
+
+
+@app.patch("/scheduler/jobs/{job_id}", response_model=SchedulerJobResponse)
+def update_scheduler_job(
+    job_id: str,
+    request: SchedulerJobUpdate,
+    store_path: str = "reports/scheduler_jobs.json",
+) -> SchedulerJobResponse:
+    store = SchedulerStore(store_path)
+    updated = store.update_job(job_id, request)
+    return SchedulerJobResponse(**updated.model_dump())
+
+
+@app.delete("/scheduler/jobs/{job_id}")
+def delete_scheduler_job(job_id: str, store_path: str = "reports/scheduler_jobs.json") -> dict[str, str]:
+    store = SchedulerStore(store_path)
+    store.delete_job(job_id)
+    return {"status": "deleted", "job_id": job_id}

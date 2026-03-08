@@ -62,9 +62,20 @@ class AIContractError(AppError):
 
 class ExecutionError(AppError):
     def __init__(self, message: str, **details: Any) -> None:
+        code = str(details.pop("code", "EXECUTION_ERROR"))
         super().__init__(
             message,
             category=ErrorCategory.EXECUTION,
-            code="EXECUTION_ERROR",
+            code=code,
+            details=details,
+        )
+
+
+class RetryableExecutionError(AppError):
+    def __init__(self, message: str, **details: Any) -> None:
+        super().__init__(
+            message,
+            category=ErrorCategory.EXTERNAL_SERVICE,
+            code="RETRYABLE_EXECUTION_ERROR",
             details=details,
         )

@@ -6,13 +6,21 @@ from ai_data_qa.bigquery.client import BQClient
 from ai_data_qa.tests_engine.models import TestCase, TestResult
 from ai_data_qa.tests_engine.sql_validator import validate_select_query
 from ai_data_qa.utils.logger import logger, log_event
-from ai_data_qa.errors import AppError, ExecutionError
+from ai_data_qa.errors import AppError, ExecutionError, RetryableExecutionError
 
 
 class TestRunner:
-    def __init__(self, bq_client: BQClient, max_rows_limit: int = 10000):
+    def __init__(
+        self,
+        bq_client: BQClient,
+        max_rows_limit: int = 10000,
+        retry_count: int = 0,
+        backoff_seconds: float = 0.0,
+    ):
         self.bq_client = bq_client
         self.max_rows_limit = max_rows_limit
+        self.retry_count = retry_count
+        self.backoff_seconds = backoff_seconds
 
     def run_tests(self, tests: List[TestCase], include_tags: Optional[List[str]] = None) -> List[TestResult]:
         """Executes a list of tests and returns results."""
@@ -26,7 +34,7 @@ class TestRunner:
             start_time = time.time()
             try:
                 safe_sql = validate_select_query(test.sql, max_limit=self.max_rows_limit)
-                rows = self.bq_client.execute_query(safe_sql)
+                rows = self._execute_with_retry(test, safe_sql)
                 failed_rows = rows[0]["failed_rows"] if rows else 0
                 execution_time = time.time() - start_time
 
@@ -94,6 +102,35 @@ class TestRunner:
                     error_message=wrapped_error.message,
                 ))
         return results
+
+
+    def _execute_with_retry(self, test: TestCase, safe_sql: str) -> list[dict]:
+        attempts = max(1, self.retry_count + 1)
+        for attempt in range(1, attempts + 1):
+            try:
+                log_event(
+                    "test_execution_attempt",
+                    table_name=test.table_name,
+                    test_name=test.test_name,
+                    attempt=attempt,
+                    max_attempts=attempts,
+                )
+                return self.bq_client.execute_query(safe_sql)
+            except RetryableExecutionError as exc:
+                log_event(
+                    "test_execution_retry",
+                    table_name=test.table_name,
+                    test_name=test.test_name,
+                    attempt=attempt,
+                    max_attempts=attempts,
+                    error=exc.message,
+                )
+                if attempt >= attempts:
+                    raise
+                if self.backoff_seconds > 0:
+                    time.sleep(self.backoff_seconds * (2 ** (attempt - 1)))
+
+        return []
 
     def save_results(self, results: List[TestResult], output_path: str = "test_results.json"):
         """Saves test results to a JSON file."""

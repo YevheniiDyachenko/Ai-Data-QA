@@ -1,9 +1,11 @@
 import typer
 import json
 import os
+import tempfile
 from typing import Optional, List
 from rich.console import Console
 from rich.table import Table
+import yaml
 
 from ai_data_qa.config import load_config
 from ai_data_qa.bigquery.client import BQClient
@@ -16,10 +18,21 @@ from ai_data_qa.ai.client import get_ai_client
 from ai_data_qa.ai.analyzer import AIAnalyzer
 from ai_data_qa.reports.report_generator import ReportGenerator
 from ai_data_qa.utils.logger import log_event
+from ai_data_qa.scheduler import SchedulerJob, SchedulerStore
 
 app = typer.Typer(help="AI-powered Data Quality tool for BigQuery")
+schedule_app = typer.Typer(help="Manage scheduler jobs")
+app.add_typer(schedule_app, name="schedule")
 console = Console()
 
+
+
+def _config_for_dataset(config_path: str, dataset: str) -> str:
+    config = load_config(config_path)
+    config.dataset = dataset
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tmp_file:
+        yaml.safe_dump(config.model_dump(), tmp_file, sort_keys=False)
+        return tmp_file.name
 
 def _split_tags(tags: Optional[str]) -> Optional[List[str]]:
     if not tags:
@@ -28,7 +41,10 @@ def _split_tags(tags: Optional[str]) -> Optional[List[str]]:
 
 
 @app.command()
-def scan(config_path: str = "config.yaml", profile: bool = True):
+def scan(
+    config_path: str = "config.yaml",
+    profile: bool = typer.Option(True, "--profile/--no-profile"),
+):
     """Reads dataset schema from BigQuery and optionally profiles tables."""
     config = load_config(config_path)
     bq_client = BQClient(config.project_id, config.location)
@@ -60,7 +76,10 @@ def scan(config_path: str = "config.yaml", profile: bool = True):
 
 
 @app.command()
-def generate_tests(config_path: str = "config.yaml", use_ai: bool = False):
+def generate_tests(
+    config_path: str = "config.yaml",
+    use_ai: bool = typer.Option(False, "--use-ai/--no-use-ai"),
+):
     """Generates SQL quality tests for each table."""
     config = load_config(config_path)
 
@@ -205,6 +224,94 @@ def report(config_path: str = "config.yaml"):
 
     report_path = reporter.generate_markdown_report(config.dataset, results, analyses)
     console.print(f"[bold green]Report generated at: {report_path}[/bold green]")
+
+
+@schedule_app.command("list")
+def schedule_list(store_path: str = "reports/scheduler_jobs.json"):
+    """Lists configured scheduler jobs."""
+    store = SchedulerStore(store_path)
+    jobs = store.list_jobs()
+
+    table = Table(title="Scheduler Jobs")
+    table.add_column("ID", style="cyan")
+    table.add_column("Dataset", style="magenta")
+    table.add_column("Schedule", style="green")
+    table.add_column("Enabled")
+    table.add_column("Retry")
+    table.add_column("Backoff(s)")
+
+    for job in jobs:
+        schedule = f"cron: {job.cron}" if job.cron else f"interval: {job.interval_seconds}s"
+        table.add_row(job.id, job.dataset, schedule, str(job.enabled), str(job.retry_count), str(job.backoff_seconds))
+
+    console.print(table)
+
+
+@schedule_app.command("add")
+def schedule_add(
+    dataset: str,
+    cron: Optional[str] = typer.Option(None, help="Cron expression"),
+    interval: Optional[int] = typer.Option(None, help="Interval in seconds"),
+    enabled: bool = typer.Option(True, "--enabled/--disabled", help="Enable job"),
+    retry_count: int = typer.Option(3, help="Retry attempts for transient errors"),
+    backoff: float = typer.Option(2.0, help="Backoff in seconds"),
+    store_path: str = "reports/scheduler_jobs.json",
+):
+    """Adds a scheduler job."""
+    job = SchedulerJob(
+        dataset=dataset,
+        cron=cron,
+        interval_seconds=interval,
+        enabled=enabled,
+        retry_count=retry_count,
+        backoff_seconds=backoff,
+    )
+    store = SchedulerStore(store_path)
+    created = store.create_job(job)
+    console.print(f"[bold green]Added scheduler job {created.id}[/bold green]")
+
+
+@schedule_app.command("remove")
+def schedule_remove(job_id: str, store_path: str = "reports/scheduler_jobs.json"):
+    """Removes a scheduler job by id."""
+    store = SchedulerStore(store_path)
+    store.delete_job(job_id)
+    console.print(f"[bold green]Removed scheduler job {job_id}[/bold green]")
+
+
+@schedule_app.command("run-now")
+def schedule_run_now(job_id: str, config_path: str = "config.yaml", store_path: str = "reports/scheduler_jobs.json"):
+    """Runs scheduler job execution pipeline immediately."""
+    store = SchedulerStore(store_path)
+    job = store.get_job(job_id)
+    if not job.enabled:
+        console.print(f"[yellow]Scheduler job {job_id} is disabled.[/yellow]")
+        raise typer.Exit(1)
+
+    temp_config_path = _config_for_dataset(config_path, job.dataset)
+    try:
+        scan(config_path=temp_config_path, profile=True)
+        generate_tests(config_path=temp_config_path, use_ai=False)
+
+        config = load_config(temp_config_path)
+        bq_client = BQClient(config.project_id, config.location)
+        runner = TestRunner(bq_client, retry_count=job.retry_count, backoff_seconds=job.backoff_seconds)
+
+        if not os.path.exists("tests_cache.json"):
+            console.print("[red]Tests cache not found. Please run 'generate-tests' first.[/red]")
+            raise typer.Exit(1)
+
+        with open("tests_cache.json", "r") as f:
+            test_data = json.load(f)
+
+        raw_tests = test_data["tests"] if isinstance(test_data, dict) else test_data
+        tests = [TestCase(**t) for t in raw_tests]
+        results = runner.run_tests(tests)
+        runner.save_results(results)
+        store.mark_run(job_id)
+        console.print(f"[bold green]Executed scheduler job {job_id}[/bold green]")
+    finally:
+        os.unlink(temp_config_path)
 
 
 if __name__ == "__main__":

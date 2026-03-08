@@ -63,3 +63,35 @@ def test_run_tests_sql_validation_error():
     assert len(results) == 1
     assert results[0].status == "ERROR"
     assert results[0].error_code == "SQL_VALIDATION_ERROR"
+
+
+from ai_data_qa.errors import RetryableExecutionError
+
+
+def test_run_tests_retries_transient_error():
+    mock_bq_client = MagicMock(spec=BQClient)
+    mock_bq_client.execute_query.side_effect = [
+        RetryableExecutionError("temporary"),
+        [{"failed_rows": 0}],
+    ]
+
+    runner = TestRunner(mock_bq_client, retry_count=1, backoff_seconds=0)
+    tests = [TestCase(table_name="users", test_name="retry_test", sql="SELECT 0 as failed_rows")]
+
+    results = runner.run_tests(tests)
+
+    assert results[0].status == "PASSED"
+    assert mock_bq_client.execute_query.call_count == 2
+
+
+def test_run_tests_retry_exhausted():
+    mock_bq_client = MagicMock(spec=BQClient)
+    mock_bq_client.execute_query.side_effect = RetryableExecutionError("temporary")
+
+    runner = TestRunner(mock_bq_client, retry_count=1, backoff_seconds=0)
+    tests = [TestCase(table_name="users", test_name="retry_fail", sql="SELECT 0 as failed_rows")]
+
+    results = runner.run_tests(tests)
+
+    assert results[0].status == "ERROR"
+    assert results[0].error_code == "RETRYABLE_EXECUTION_ERROR"
