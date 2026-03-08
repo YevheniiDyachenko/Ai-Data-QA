@@ -11,7 +11,7 @@ from ai_data_qa.bigquery.schema_loader import SchemaLoader
 from ai_data_qa.bigquery.profiler import Profiler
 from ai_data_qa.tests_engine.generator import TestGenerator
 from ai_data_qa.tests_engine.runner import TestRunner
-from ai_data_qa.tests_engine.models import TestCase
+from ai_data_qa.tests_engine.models import RuleDefinition
 from ai_data_qa.ai.client import get_ai_client
 from ai_data_qa.ai.analyzer import AIAnalyzer
 from ai_data_qa.reports.report_generator import ReportGenerator
@@ -19,12 +19,43 @@ from ai_data_qa.utils.logger import log_event
 
 app = typer.Typer(help="AI-powered Data Quality tool for BigQuery")
 console = Console()
+TESTS_CACHE_SCHEMA_VERSION = "2.0"
 
 
 def _split_tags(tags: Optional[str]) -> Optional[List[str]]:
     if not tags:
         return None
     return [tag.strip() for tag in tags.split(",") if tag.strip()]
+
+
+def _load_rules_from_cache(cache_payload: object) -> List[RuleDefinition]:
+    """Loads rules from either the new envelope or legacy tests format."""
+    if isinstance(cache_payload, dict) and "rules" in cache_payload:
+        raw_rules = cache_payload["rules"]
+        return [RuleDefinition(**r) for r in raw_rules]
+
+    if isinstance(cache_payload, dict) and "tests" in cache_payload:
+        raw_tests = cache_payload["tests"]
+        return [
+            RuleDefinition(
+                id=t["test_name"],
+                table_name=t["table_name"],
+                rule_type="legacy_test_case",
+                severity="medium",
+                owner="legacy",
+                dimension="consistency",
+                sql=t["sql"],
+                enabled=True,
+                tags=t.get("tags") or [],
+                metadata={"description": t.get("description")} if t.get("description") else {},
+            )
+            for t in raw_tests
+        ]
+
+    if isinstance(cache_payload, list):
+        return [RuleDefinition(**r) for r in cache_payload]
+
+    return []
 
 
 @app.command()
@@ -95,7 +126,14 @@ def generate_tests(config_path: str = "config.yaml", use_ai: bool = False):
     console.print(f"[bold green]Generated {len(all_tests)} tests for {len(schemas)} tables.[/bold green]")
 
     with open("tests_cache.json", "w") as f:
-        json.dump({"tests": [t.model_dump() for t in all_tests]}, f, indent=2)
+        json.dump(
+            {
+                "schema_version": TESTS_CACHE_SCHEMA_VERSION,
+                "rules": [t.model_dump() for t in all_tests],
+            },
+            f,
+            indent=2,
+        )
 
 
 @app.command()
@@ -112,8 +150,7 @@ def run_tests(config_path: str = "config.yaml", tags: Optional[str] = typer.Opti
     with open("tests_cache.json", "r") as f:
         test_data = json.load(f)
 
-    raw_tests = test_data["tests"] if isinstance(test_data, dict) else test_data
-    tests = [TestCase(**t) for t in raw_tests]
+    tests = _load_rules_from_cache(test_data)
 
     with console.status("[bold green]Running tests..."):
         results = runner.run_tests(tests, include_tags=_split_tags(tags))

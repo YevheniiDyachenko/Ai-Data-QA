@@ -1,9 +1,9 @@
 import time
 import json
 import os
-from typing import List, Optional
+from typing import List, Optional, Union
 from ai_data_qa.bigquery.client import BQClient
-from ai_data_qa.tests_engine.models import TestCase, TestResult
+from ai_data_qa.tests_engine.models import TestCase, TestResult, RuleDefinition
 from ai_data_qa.tests_engine.sql_validator import validate_select_query
 from ai_data_qa.utils.logger import logger, log_event
 from ai_data_qa.errors import AppError, ExecutionError
@@ -14,15 +14,43 @@ class TestRunner:
         self.bq_client = bq_client
         self.max_rows_limit = max_rows_limit
 
-    def run_tests(self, tests: List[TestCase], include_tags: Optional[List[str]] = None) -> List[TestResult]:
+    def run_tests(self, tests: List[Union[TestCase, RuleDefinition]], include_tags: Optional[List[str]] = None) -> List[TestResult]:
         """Executes a list of tests and returns results."""
         results = []
-        selected_tests = tests
+        normalized_tests: List[RuleDefinition] = []
+        for test in tests:
+            if isinstance(test, RuleDefinition):
+                normalized_tests.append(test)
+            else:
+                normalized_tests.append(RuleDefinition(
+                    id=test.test_name,
+                    table_name=test.table_name,
+                    rule_type="legacy_test_case",
+                    severity="medium",
+                    owner="unknown",
+                    dimension="consistency",
+                    sql=test.sql,
+                    enabled=True,
+                    tags=test.tags,
+                    metadata={"description": test.description} if test.description else {},
+                ))
+
+        selected_tests = normalized_tests
         if include_tags:
             include_set = set(include_tags)
-            selected_tests = [t for t in tests if include_set.intersection(t.tags)]
+            selected_tests = [t for t in normalized_tests if include_set.intersection(t.tags)]
 
         for test in selected_tests:
+            if not test.enabled:
+                log_event(
+                    "test_skipped_disabled",
+                    table_name=test.table_name,
+                    rule_id=test.id,
+                    severity=test.severity,
+                    owner=test.owner,
+                )
+                continue
+
             start_time = time.time()
             try:
                 safe_sql = validate_select_query(test.sql, max_limit=self.max_rows_limit)
@@ -34,7 +62,7 @@ class TestRunner:
 
                 results.append(TestResult(
                     table_name=test.table_name,
-                    test_name=test.test_name,
+                    test_name=test.id,
                     sql=safe_sql,
                     failed_rows=failed_rows,
                     execution_time=execution_time,
@@ -43,7 +71,10 @@ class TestRunner:
                 log_event(
                     "test_executed",
                     table_name=test.table_name,
-                    test_name=test.test_name,
+                    test_name=test.id,
+                    rule_id=test.id,
+                    severity=test.severity,
+                    owner=test.owner,
                     status=status,
                     failed_rows=failed_rows,
                     execution_time=execution_time,
@@ -54,14 +85,17 @@ class TestRunner:
                 log_event(
                     "test_execution_error",
                     table_name=test.table_name,
-                    test_name=test.test_name,
+                    test_name=test.id,
+                    rule_id=test.id,
+                    severity=test.severity,
+                    owner=test.owner,
                     category=app_error.category,
                     code=app_error.code,
                     details=app_error.details,
                 )
                 results.append(TestResult(
                     table_name=test.table_name,
-                    test_name=test.test_name,
+                    test_name=test.id,
                     sql=test.sql,
                     failed_rows=-1,
                     execution_time=execution_time,
@@ -72,19 +106,22 @@ class TestRunner:
                 ))
             except Exception as e:
                 execution_time = time.time() - start_time
-                wrapped_error = ExecutionError("Unhandled error running test", test_name=test.test_name, reason=str(e))
-                logger.error(f"Error running test {test.test_name}: {e}")
+                wrapped_error = ExecutionError("Unhandled error running test", test_name=test.id, reason=str(e))
+                logger.error(f"Error running test {test.id}: {e}")
                 log_event(
                     "test_execution_error",
                     table_name=test.table_name,
-                    test_name=test.test_name,
+                    test_name=test.id,
+                    rule_id=test.id,
+                    severity=test.severity,
+                    owner=test.owner,
                     category=wrapped_error.category,
                     code=wrapped_error.code,
                     details=wrapped_error.details,
                 )
                 results.append(TestResult(
                     table_name=test.table_name,
-                    test_name=test.test_name,
+                    test_name=test.id,
                     sql=test.sql,
                     failed_rows=-1,
                     execution_time=execution_time,
