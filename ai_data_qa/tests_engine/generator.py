@@ -1,7 +1,7 @@
 import os
 from typing import List, Dict, Optional
 import json
-from ai_data_qa.tests_engine.models import TableSchema, TestCase
+from ai_data_qa.tests_engine.models import TableSchema, TestCase, RuleDefinition
 from ai_data_qa.ai.client import AIClient
 from ai_data_qa.ai.prompts import TEST_GENERATION_PROMPT
 from ai_data_qa.utils.logger import logger, log_event
@@ -15,6 +15,34 @@ class TestGenerator:
         self.ai_client = ai_client
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
+
+    @staticmethod
+    def rule_to_test_case(rule: RuleDefinition) -> TestCase:
+        """Backward-compatible mapping from RuleDefinition to TestCase."""
+        return TestCase(
+            table_name=rule.table_name,
+            test_name=rule.id,
+            sql=rule.sql,
+            description=rule.metadata.get("description"),
+            tags=rule.tags,
+            quality_dimension=rule.dimension if rule.dimension in {"completeness", "validity", "freshness", "consistency"} else None,
+        )
+
+    @staticmethod
+    def test_case_to_rule_definition(test: TestCase, rule_type: str = "sql_assertion") -> RuleDefinition:
+        """Backward-compatible mapping from TestCase to RuleDefinition."""
+        return RuleDefinition(
+            id=test.test_name,
+            table_name=test.table_name,
+            rule_type=rule_type,
+            severity="medium",
+            owner="data-platform",
+            dimension=test.quality_dimension or "consistency",
+            sql=test.sql,
+            enabled=True,
+            tags=test.tags,
+            metadata={"description": test.description} if test.description else {},
+        )
 
     def generate_static_tests(
         self,
@@ -300,11 +328,11 @@ class TestGenerator:
                     raise AIContractError("AI test item missing SQL", item=test)
                 ai_tests.append(TestCase(
                     table_name=table_schema.table_name,
-                    test_name=test.get("test_name") or f"{table_schema.table_name}_ai_test_{i+1}",
+                    test_name=test.get("id") or test.get("test_name") or f"{table_schema.table_name}_ai_test_{i+1}",
                     sql=test["sql"],
                     description=test.get("description") or "AI-generated data quality test.",
                     tags=test.get("tags") or ["distribution"],
-                    quality_dimension=test.get("quality_dimension"),
+                    quality_dimension=test.get("quality_dimension") or test.get("dimension"),
                 ))
             return ai_tests
         except AIContractError as contract_error:
@@ -325,7 +353,15 @@ class TestGenerator:
         file_path = os.path.join(self.output_dir, f"{table_name}.sql")
         with open(file_path, "w") as f:
             for test in tests:
-                f.write(f"-- Name: {test.test_name}\n")
-                f.write(f"-- Description: {test.description}\n")
-                f.write(f"{test.sql};\n\n")
+                if isinstance(test, RuleDefinition):
+                    name = test.id
+                    description = test.metadata.get("description", "")
+                    sql = test.sql
+                else:
+                    name = test.test_name
+                    description = test.description or ""
+                    sql = test.sql
+                f.write(f"-- Name: {name}\n")
+                f.write(f"-- Description: {description}\n")
+                f.write(f"{sql};\n\n")
         logger.info(f"Saved {len(tests)} tests to {file_path}")

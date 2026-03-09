@@ -22,6 +22,19 @@ class ProfilingResult(BaseModel):
     distinct_count: Optional[int] = None
 
 
+class RuleDefinition(BaseModel):
+    id: str
+    table_name: str
+    rule_type: str
+    severity: str = "medium"
+    owner: str = "data-platform"
+    dimension: str = "consistency"
+    sql: str
+    enabled: bool = True
+    tags: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class TestCase(BaseModel):
     table_name: str
     test_name: str
